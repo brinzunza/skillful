@@ -106,7 +106,7 @@ def create_directory(path: str) -> str:
 
 def delete_file(filepath: str) -> str:
     """
-    Delete a file.
+    Delete a file. REQUIRES USER CONFIRMATION before deletion.
 
     Args:
         filepath: Path to the file to delete

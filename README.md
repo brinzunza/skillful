@@ -21,26 +21,85 @@ OPENAI_API_KEY=your-api-key-here
 
 ## Usage
 
-Run the agent with a goal:
-```bash
-python agent.py "your goal here"
-```
+### Interactive Terminal Mode (Recommended)
 
-### Examples
+Run Skillful without arguments to enter interactive terminal mode:
 
 ```bash
-# Create a file
-python agent.py "create a file called hello.txt with the content 'Hello World'"
-
-# List and read files
-python agent.py "list all files in the current directory and read the contents of README.md"
-
-# Run shell commands
-python agent.py "create a directory called test_dir and create 3 empty files in it"
-
-# Complex tasks
-python agent.py "find all .py files in the current directory and count the total lines of code"
+python agent.py
 ```
+
+You'll see a terminal prompt:
+
+```
+============================================================
+  SKILLFUL - Autonomous Agent Terminal
+============================================================
+Type /help for available commands
+Type /exit to quit
+============================================================
+
+skillful> _
+```
+
+### Available Commands
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `/order <task>` | Give the agent a task to complete | `/order create a file called hello.txt` |
+| `/skills` | List all available skills | `/skills` |
+| `/help` | Show help message | `/help` |
+| `/clear` | Clear the screen | `/clear` |
+| `/history` | Show last 10 conversation entries | `/history` |
+| `/reset` | Reset agent (clear history) | `/reset` |
+| `/exit` | Exit the terminal | `/exit` |
+
+### Example Session
+
+```bash
+skillful> /order create a file called hello.txt with Hello World
+
+Executing task: create a file called hello.txt with Hello World
+
+============================================================
+GOAL: create a file called hello.txt with Hello World
+============================================================
+
+--- Iteration 1 ---
+Reasoning: I need to write content to a new file...
+Action: execute
+Executing: write_file({'filepath': 'hello.txt', 'content': 'Hello World'})
+Result: Successfully wrote to hello.txt...
+
+============================================================
+GOAL ACHIEVED!
+============================================================
+
+skillful> /skills
+
+============================================================
+AVAILABLE SKILLS
+============================================================
+• read_file
+  Read the contents of a file.
+• write_file
+  Write content to a file. Creates the file if it doesn't exist.
+...
+
+skillful> /exit
+
+Goodbye!
+```
+
+### Single Command Mode (Legacy)
+
+You can also run tasks directly from the command line:
+
+```bash
+python agent.py "create a file called test.txt"
+```
+
+This is useful for scripting or one-off tasks.
 
 ## How It Works
 
@@ -57,9 +116,9 @@ The agent has access to these built-in skills (defined in `skills.py`):
 - `read_file` - Read file contents
 - `write_file` - Write to a file
 - `list_directory` - List files in a directory
-- `run_shell_command` - Execute shell commands
+- `run_shell_command` - Execute shell commands (safety-checked)
 - `create_directory` - Create directories
-- `delete_file` - Delete files
+- `delete_file` - Delete files **[REQUIRES USER CONFIRMATION]**
 - `get_current_directory` - Get current working directory
 
 ## Adding Custom Skills
@@ -104,14 +163,89 @@ Edit `agent.py` to customize:
 - `max_iterations` - Maximum loops before stopping (default: 20)
 - `temperature` - LLM creativity (default: 0.7)
 
-## Safety
+## Safety Features
 
-The agent can execute shell commands and modify your filesystem. Use with caution:
+The agent includes built-in safety mechanisms to prevent catastrophic failures:
 
-- Start with simple, safe goals
-- The agent has access to your entire filesystem
-- Shell commands run with your user permissions
-- Review skills in `skills.py` before running
+### Automatic Protections
+
+1. **Command Validation**
+   - Blocks dangerous shell commands (rm -rf /, fork bombs, etc.)
+   - Prevents system modification commands (shutdown, reboot, etc.)
+   - Detects suspicious command patterns and obfuscation
+
+2. **Protected Paths**
+   - System directories are off-limits (`/bin`, `/etc`, `/usr`, etc.)
+   - Critical config files protected (`~/.ssh`, `~/.bashrc`, `.env`, etc.)
+   - Won't delete or modify important project files
+
+3. **User Confirmation for Deletions**
+   - **All file deletions require explicit user approval**
+   - Agent pauses and prompts you before deleting any file
+   - You can approve (yes) or deny (no) each deletion
+   - Example prompt:
+   ```
+   ============================================================
+   CONFIRMATION REQUIRED
+   ============================================================
+   Skill: delete_file
+   Arguments: {
+     "filepath": "important.txt"
+   }
+   ============================================================
+   Allow this operation? (yes/no):
+   ```
+
+4. **Risk Monitoring**
+   - Tracks risk level of each operation (low/medium/high/critical)
+   - Blocks critical operations automatically
+   - Limits high-risk operations (max 10 per session)
+   - Prints safety report at end of execution
+
+### Safety Report
+
+After each run, you'll see a safety report:
+```
+SAFETY REPORT
+============================================================
+Total operations: 5
+Blocked operations: 1
+
+Risk distribution:
+  LOW: 2
+  MEDIUM: 2
+  HIGH: 1
+
+Blocked operations:
+  - Shell command blocked: rm -rf /
+============================================================
+```
+
+### Disabling Safety (Not Recommended)
+
+If you need to disable safety checks for testing:
+
+```python
+# In agent.py main()
+agent = AutonomousAgent(enable_safety=False)
+```
+
+**Warning**: Only disable safety in controlled environments! User confirmation for deletions will still be required.
+
+### What Gets Blocked
+
+- Destructive commands: `rm -rf /`, `dd if=...`, `mkfs`, fork bombs
+- System commands: `shutdown`, `reboot`, `halt`
+- Privilege escalation: `sudo rm`, `chmod 777 /`
+- Protected file operations on system/config files
+- Excessive command chaining or substitution (potential obfuscation)
+
+## Usage Notes
+
+- Start with simple, safe goals to test behavior
+- Review the safety report after each run
+- **You'll be prompted to confirm any file deletions**
+- Shell commands run with your user permissions (not root)
 
 ## License
 
