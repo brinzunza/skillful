@@ -5,6 +5,7 @@ Safety and security features to prevent catastrophic commands.
 import re
 import os
 from typing import Tuple, List
+from pathlib import Path
 
 
 class SafetyError(Exception):
@@ -74,6 +75,38 @@ PROTECTED_EXTENSIONS = [
 ]
 
 
+def is_within_working_directory(path: str) -> bool:
+    """
+    Check if a path is within or below the current working directory.
+    Prevents access to parent directories.
+
+    Args:
+        path: Path to check
+
+    Returns:
+        True if path is within or below cwd, False otherwise
+    """
+    try:
+        # Expand user paths (~ to home directory)
+        expanded_path = os.path.expanduser(path)
+
+        # Get absolute paths
+        cwd = Path.cwd().resolve()
+        target = Path(expanded_path).resolve()
+
+        # Check if target is cwd or a subdirectory
+        # This works by checking if cwd is a parent of target (or equal to it)
+        try:
+            target.relative_to(cwd)
+            return True
+        except ValueError:
+            # relative_to raises ValueError if target is not relative to cwd
+            return False
+    except Exception:
+        # If there's any error resolving paths, deny access
+        return False
+
+
 def is_protected_path(path: str) -> bool:
     """
     Check if a path is protected from modification.
@@ -138,6 +171,10 @@ def validate_file_operation(operation: str, filepath: str) -> Tuple[bool, str]:
     Returns:
         Tuple of (is_safe, reason)
     """
+    # First check: Must be within working directory
+    if not is_within_working_directory(filepath):
+        return False, f"Blocked: Path '{filepath}' is outside the working directory. Agent can only access current directory and subdirectories."
+
     # Check if path is protected
     if is_protected_path(filepath):
         return False, f"Blocked: Path '{filepath}' is protected"

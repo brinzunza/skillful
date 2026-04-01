@@ -169,17 +169,24 @@ The agent includes built-in safety mechanisms to prevent catastrophic failures:
 
 ### Automatic Protections
 
-1. **Command Validation**
+1. **Working Directory Restriction** (Sandbox)
+   - **Agent can ONLY access files in current directory and subdirectories**
+   - Parent directory access is blocked (e.g., `../file.txt` is denied)
+   - Absolute paths outside working directory are blocked
+   - Home directory paths (`~/.bashrc`) are blocked
+   - This creates a sandbox - the agent cannot escape the project folder
+
+2. **Command Validation**
    - Blocks dangerous shell commands (rm -rf /, fork bombs, etc.)
    - Prevents system modification commands (shutdown, reboot, etc.)
    - Detects suspicious command patterns and obfuscation
 
-2. **Protected Paths**
+3. **Protected Paths**
    - System directories are off-limits (`/bin`, `/etc`, `/usr`, etc.)
    - Critical config files protected (`~/.ssh`, `~/.bashrc`, `.env`, etc.)
    - Won't delete or modify important project files
 
-3. **User Confirmation for Deletions**
+4. **User Confirmation for Deletions**
    - **All file deletions require explicit user approval**
    - Agent pauses and prompts you before deleting any file
    - You can approve (yes) or deny (no) each deletion
@@ -196,7 +203,7 @@ The agent includes built-in safety mechanisms to prevent catastrophic failures:
    Allow this operation? (yes/no):
    ```
 
-4. **Risk Monitoring**
+5. **Risk Monitoring**
    - Tracks risk level of each operation (low/medium/high/critical)
    - Blocks critical operations automatically
    - Limits high-risk operations (max 10 per session)
@@ -234,6 +241,8 @@ agent = AutonomousAgent(enable_safety=False)
 
 ### What Gets Blocked
 
+- **Parent directory access**: `../file.txt`, `../../config`, etc.
+- **Paths outside working directory**: `/tmp/test.txt`, `~/file.txt`, `/etc/passwd`
 - Destructive commands: `rm -rf /`, `dd if=...`, `mkfs`, fork bombs
 - System commands: `shutdown`, `reboot`, `halt`
 - Privilege escalation: `sudo rm`, `chmod 777 /`
@@ -242,6 +251,7 @@ agent = AutonomousAgent(enable_safety=False)
 
 ## Usage Notes
 
+- **The agent operates in a sandbox** - it can only access the current directory and subdirectories
 - Start with simple, safe goals to test behavior
 - Review the safety report after each run
 - **You'll be prompted to confirm any file deletions**
