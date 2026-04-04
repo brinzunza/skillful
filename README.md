@@ -52,6 +52,13 @@ skillful> _
 | `/clear` | Clear the screen | `/clear` |
 | `/history` | Show last 10 conversation entries | `/history` |
 | `/reset` | Reset agent (clear history) | `/reset` |
+| `/save [name]` | Save current session to memory | `/save my-session` |
+| `/load [id]` | Load a saved session | `/load 20260403_143022` |
+| `/sessions` | List all saved sessions | `/sessions` |
+| `/undo` | Undo last operation (git rollback) | `/undo` |
+| `/status` | Show git status | `/status` |
+| `/config` | Show current configuration | `/config` |
+| `/cost` | Show cost report | `/cost` or `/cost details` |
 | `/exit` | Exit the terminal | `/exit` |
 
 ### Example Session
@@ -104,10 +111,41 @@ This is useful for scripting or one-off tasks.
 ## How It Works
 
 1. **Agent Loop**: The agent runs in a loop (think → act → observe → repeat)
-2. **Think**: Uses OpenAI to decide what skill to use next
+2. **Think**: Uses OpenAI to decide what skill to use next (streams reasoning in real-time)
 3. **Act**: Executes the chosen skill with the provided arguments
 4. **Observe**: Gets the result and feeds it back to the LLM
 5. **Repeat**: Continues until the goal is achieved or max iterations reached
+
+### Real-Time Streaming
+
+The agent streams LLM responses in real-time, so you can see the reasoning as it's generated:
+
+```
+============================================================
+ITERATION 1/20
+============================================================
+
+============================================================
+AGENT REASONING (streaming...)
+============================================================
+I need to create a new file called hello.txt. The best approach
+is to use the write_file skill with the filepath and content
+parameters. This will create the file if it doesn't exist.
+
+[JSON Response]
+============================================================
+
+[Executing: write_file]
+Arguments: {
+  "filepath": "hello.txt",
+  "content": "Hello World"
+}
+
+[Result]
+Successfully wrote to hello.txt
+```
+
+This provides immediate feedback and makes the agent's decision-making process transparent.
 
 ## Available Skills
 
@@ -157,11 +195,249 @@ The agent will automatically discover and use new skills.
 
 ## Configuration
 
-Edit `agent.py` to customize:
+Skillful uses a YAML configuration file at `.skillful/config.yaml`. The file is auto-created with defaults on first run.
 
-- `model` - Change the OpenAI model (default: `gpt-4o-mini`)
-- `max_iterations` - Maximum loops before stopping (default: 20)
-- `temperature` - LLM creativity (default: 0.7)
+### Configuration Options
+
+```yaml
+model: gpt-4o-mini          # OpenAI model to use
+max_iterations: 20           # Max agent loop iterations
+temperature: 0.7             # LLM creativity (0.0-2.0)
+
+safety:
+  enabled: true              # Enable safety checks
+  max_high_risk_operations: 10  # Max high-risk ops per session
+  require_confirmation:      # Skills requiring user confirmation
+    - delete_file
+
+memory:
+  enabled: true              # Enable persistent memory
+  auto_save: true            # Auto-save on exit
+
+async:
+  enabled: false             # Enable async task execution
+  max_concurrent_tasks: 1    # Max concurrent tasks
+
+undo:
+  enabled: true              # Enable undo/rollback
+  use_git: true              # Use git for undo
+  auto_commit: true          # Auto-commit before operations
+```
+
+### Viewing Configuration
+
+```bash
+skillful> /config
+```
+
+### Editing Configuration
+
+Edit `.skillful/config.yaml` directly, then restart the agent or use `/reset`.
+
+## Persistent Memory
+
+Skillful can save and load conversation sessions, allowing you to resume work later or maintain context across restarts.
+
+### Saving Sessions
+
+```bash
+# Save current session with a name
+skillful> /save my-important-work
+
+# Auto-saves on exit (if memory.auto_save: true)
+skillful> /exit
+```
+
+### Loading Sessions
+
+```bash
+# Load most recent session
+skillful> /load
+
+# Load specific session by ID
+skillful> /load 20260403_143022_my-important-work
+```
+
+### Managing Sessions
+
+```bash
+# List all saved sessions
+skillful> /sessions
+
+SAVED SESSIONS
+============================================================
+
+ID: 20260403_143022_my-important-work
+Name: my-important-work
+Messages: 24
+Time: 2026-04-03T14:30:22
+
+...
+```
+
+### How It Works
+
+- Sessions are stored in `.skillful/sessions.json`
+- Each session includes full conversation history
+- Load a session to continue where you left off
+- Agent has context of previous interactions
+
+## Undo/Rollback (Git Integration)
+
+Skillful uses git to create automatic checkpoints before risky operations, allowing you to undo mistakes.
+
+### Automatic Checkpoints
+
+The agent automatically creates git commits before:
+- Writing files (`write_file`)
+- Deleting files (`delete_file`)
+- Running shell commands (`run_shell_command`)
+
+### Undoing Operations
+
+```bash
+# Undo the last operation
+skillful> /undo
+
+Undone: write_file {'filepath': 'test.txt', 'content': '...'}
+
+# Check git status
+skillful> /status
+
+Git Status:
+ M test.txt
+```
+
+### How It Works
+
+- Git repo is auto-initialized if it doesn't exist
+- Each risky operation creates a commit
+- `/undo` rolls back to the previous commit
+- Stack-based: can undo multiple operations in order
+- `.skillful/` directory is automatically gitignored
+
+### Requirements
+
+- Git must be installed on your system
+- Agent must have write permissions in the directory
+
+### Disabling Undo
+
+Set in `.skillful/config.yaml`:
+```yaml
+undo:
+  enabled: false
+```
+
+## Cost Tracking
+
+Skillful automatically tracks OpenAI API costs for every request, giving you visibility into spending.
+
+### Automatic Tracking
+
+Every LLM request is tracked with:
+- Input tokens (prompt)
+- Output tokens (completion)
+- Cost per request
+- Model used
+
+### Viewing Costs
+
+```bash
+# Quick summary (shown after each task)
+============================================================
+COST SUMMARY
+============================================================
+API Requests: 5
+Total Tokens: 3,247
+  Input:  2,156 tokens
+  Output: 1,091 tokens
+Session Cost: $0.0132
+============================================================
+
+# Detailed report
+skillful> /cost
+
+============================================================
+COST REPORT - Current Session
+============================================================
+Total Requests: 5
+Total Tokens: 3,247
+  Input:  2,156 tokens
+  Output: 1,091 tokens
+Total Cost: $0.0132
+Average Cost per Request: $0.0026
+
+HISTORICAL SUMMARY
+============================================================
+Total Sessions: 12
+Lifetime Cost: $0.47
+Lifetime Tokens: 124,583
+Average per Session: $0.0392
+============================================================
+
+# Per-request details
+skillful> /cost details
+...
+Request 1:
+  Model: gpt-4o-mini
+  Tokens: 1,245 (834 in + 411 out)
+  Cost: $0.0037
+...
+```
+
+### How It Works
+
+- **Real-time tracking**: Costs calculated immediately after each API call
+- **Persistent storage**: Session costs saved to `.skillful/costs.json`
+- **Historical data**: Lifetime stats across all sessions
+- **Accurate pricing**: Uses official OpenAI pricing (updated for 2024-2025)
+
+### Pricing (as of 2025)
+
+| Model | Input (per 1M tokens) | Output (per 1M tokens) |
+|-------|----------------------|------------------------|
+| gpt-4o-mini | $0.15 | $0.60 |
+| gpt-4o | $2.50 | $10.00 |
+| gpt-4-turbo | $10.00 | $30.00 |
+| gpt-3.5-turbo | $0.50 | $1.50 |
+
+### Controlling Costs
+
+1. **Use cheaper models** - Edit `.skillful/config.yaml`:
+   ```yaml
+   model: gpt-4o-mini  # Cheapest option
+   ```
+
+2. **Limit iterations** - Reduce max loop count:
+   ```yaml
+   max_iterations: 10  # Default: 20
+   ```
+
+3. **Monitor spending** - Check `/cost` regularly
+
+4. **Clear history** - Conversation history increases token usage:
+   ```bash
+   skillful> /reset  # Clears context, reduces future costs
+   ```
+
+### Cost Data
+
+All cost data stored in `.skillful/costs.json`:
+- Survives restarts
+- Per-session breakdowns
+- Full request history
+
+## Async Execution (Coming Soon)
+
+Background task execution is implemented but disabled by default. This feature allows running multiple agent tasks concurrently.
+
+To enable (experimental):
+```yaml
+async:
+  enabled: true
+  max_concurrent_tasks: 3
+```
 
 ## Safety Features
 

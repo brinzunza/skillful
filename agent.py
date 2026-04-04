@@ -10,31 +10,56 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from skills import get_skills_description, execute_skill
 from safety import SafetyMonitor, needs_user_confirmation
+from config import Config
+from memory import Memory
+from undo import UndoManager
+from async_executor import AsyncExecutor
+from cost_tracker import CostTracker
 
 # Load environment variables from .env file
 load_dotenv()
 
 
 class AutonomousAgent:
-    def __init__(self, api_key: str = None, model: str = "gpt-4o-mini", enable_safety: bool = True):
+    def __init__(self, api_key: str = None, config: Config = None):
         """
         Initialize the autonomous agent.
 
         Args:
             api_key: OpenAI API key (defaults to OPENAI_API_KEY env var)
-            model: OpenAI model to use
-            enable_safety: Enable safety checks (default: True)
+            config: Configuration object (creates default if None)
         """
+        # Load or create config
+        self.config = config or Config()
+
+        # Setup API
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         if not self.api_key:
             raise ValueError("OPENAI_API_KEY not found. Please set it in .env file or environment variables")
 
         self.client = OpenAI(api_key=self.api_key)
-        self.model = model
+
+        # Load config values
+        self.model = self.config.get("model", "gpt-4o-mini")
+        self.max_iterations = self.config.get("max_iterations", 20)
+        self.temperature = self.config.get("temperature", 0.7)
+
+        # Initialize components
         self.conversation_history = []
-        self.max_iterations = 20  # Prevent infinite loops
-        self.enable_safety = enable_safety
-        self.safety_monitor = SafetyMonitor() if enable_safety else None
+        self.enable_safety = self.config.get("safety.enabled", True)
+        self.safety_monitor = SafetyMonitor() if self.enable_safety else None
+
+        # Memory
+        self.memory = Memory() if self.config.get("memory.enabled", True) else None
+
+        # Undo
+        self.undo_manager = UndoManager(
+            use_git=self.config.get("undo.use_git", True),
+            auto_commit=self.config.get("undo.auto_commit", True)
+        ) if self.config.get("undo.enabled", True) else None
+
+        # Cost tracking
+        self.cost_tracker = CostTracker()
 
     def think(self, goal: str, observation: str = None) -> dict:
         """
@@ -86,14 +111,73 @@ If the goal is achieved, set "action" to "complete" and omit "skill" and "args".
         messages.extend(self.conversation_history[-6:])  # Keep last 3 exchanges
         messages.append({"role": "user", "content": user_message})
 
-        response = self.client.chat.completions.create(
+        # Stream the response
+        print("\n" + "="*60, flush=True)
+        print("AGENT REASONING (streaming...)", flush=True)
+        print("="*60, flush=True)
+
+        stream = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
-            temperature=0.7
+            temperature=self.temperature,
+            stream=True
         )
 
+        # Collect streamed content
+        content = ""
+        input_tokens = 0
+        output_tokens = 0
+        in_json_block = False
+        buffer = ""
+
+        for chunk in stream:
+            if chunk.choices[0].delta.content:
+                chunk_content = chunk.choices[0].delta.content
+                content += chunk_content
+                buffer += chunk_content
+
+                # Detect JSON code blocks
+                if "```json" in buffer:
+                    in_json_block = True
+                    # Print what came before
+                    before_json = buffer.split("```json")[0]
+                    print(before_json, end='', flush=True)
+                    print("\n[JSON Response]", flush=True)
+                    buffer = ""
+                elif "```" in buffer and in_json_block:
+                    in_json_block = False
+                    buffer = ""
+                else:
+                    # Stream character by character for smooth display
+                    print(chunk_content, end='', flush=True)
+                    buffer = ""
+
+            # Track usage if available
+            if hasattr(chunk, 'usage') and chunk.usage:
+                input_tokens = chunk.usage.prompt_tokens
+                output_tokens = chunk.usage.completion_tokens
+
+        print("\n" + "="*60 + "\n", flush=True)  # Close streaming section
+
+        # Track API cost (estimate if usage not provided in stream)
+        if input_tokens > 0 or output_tokens > 0:
+            self.cost_tracker.track_request(
+                model=self.model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens
+            )
+        else:
+            # Estimate token usage (rough approximation: 1 token ≈ 4 chars)
+            estimated_input = sum(len(m.get('content', '')) for m in messages) // 4
+            estimated_output = len(content) // 4
+            self.cost_tracker.track_request(
+                model=self.model,
+                input_tokens=estimated_input,
+                output_tokens=estimated_output
+            )
+
         # Parse the response
-        content = response.choices[0].message.content.strip()
+        content = content.strip()
 
         # Extract JSON from response (handle markdown code blocks)
         if "```json" in content:
@@ -149,6 +233,11 @@ If the goal is achieved, set "action" to "complete" and omit "skill" and "args".
                 print(f"\nUSER DENIED: Operation cancelled by user")
                 return "DENIED: User cancelled the operation"
 
+        # Create checkpoint before risky operations
+        if self.undo_manager and skill in ['write_file', 'delete_file', 'run_shell_command']:
+            checkpoint_desc = f"{skill} {args}"
+            self.undo_manager.checkpoint(checkpoint_desc)
+
         result = execute_skill(skill, **args)
         return result
 
@@ -194,13 +283,12 @@ If the goal is achieved, set "action" to "complete" and omit "skill" and "args".
         observation = None
 
         for iteration in range(self.max_iterations):
-            print(f"\n--- Iteration {iteration + 1} ---")
+            print(f"\n{'='*60}")
+            print(f"ITERATION {iteration + 1}/{self.max_iterations}")
+            print(f"{'='*60}")
 
-            # Think about what to do
+            # Think about what to do (streams reasoning in real-time)
             decision = self.think(goal, observation)
-
-            print(f"\nReasoning: {decision.get('reasoning', 'N/A')}")
-            print(f"Action: {decision.get('action', 'N/A')}")
 
             # Check if goal is complete
             if decision["action"] == "complete":
@@ -212,10 +300,19 @@ If the goal is achieved, set "action" to "complete" and omit "skill" and "args".
             # Execute the action
             skill = decision.get("skill", "N/A")
             args = decision.get("args", {})
-            print(f"Executing: {skill}({args})")
+
+            print(f"\n[Executing: {skill}]")
+            if args:
+                print(f"Arguments: {json.dumps(args, indent=2)}")
 
             observation = self.act(decision)
-            print(f"Result: {observation[:500]}...")  # Truncate long outputs
+
+            print(f"\n[Result]")
+            # Truncate long outputs but show more context
+            if len(observation) > 500:
+                print(f"{observation[:500]}...\n(truncated, {len(observation)} total chars)")
+            else:
+                print(observation)
 
         else:
             print(f"\n{'='*60}")
@@ -225,6 +322,9 @@ If the goal is achieved, set "action" to "complete" and omit "skill" and "args".
         # Print safety report if enabled
         if self.enable_safety:
             self._print_safety_report()
+
+        # Print cost report
+        self._print_cost_summary()
 
     def _print_safety_report(self):
         """Print a safety report after agent execution."""
@@ -246,12 +346,31 @@ If the goal is achieved, set "action" to "complete" and omit "skill" and "args".
                 print(f"  - {violation}")
         print(f"{'='*60}\n")
 
+    def _print_cost_summary(self):
+        """Print a cost summary after agent execution."""
+        summary = self.cost_tracker.get_session_summary()
+
+        if summary['total_requests'] == 0:
+            return
+
+        print(f"\n{'='*60}")
+        print("COST SUMMARY")
+        print(f"{'='*60}")
+        print(f"API Requests: {summary['total_requests']}")
+        print(f"Total Tokens: {summary['total_tokens']:,}")
+        print(f"  Input:  {summary['total_input_tokens']:,} tokens")
+        print(f"  Output: {summary['total_output_tokens']:,} tokens")
+        print(f"Session Cost: ${summary['total_cost']:.4f}")
+        print(f"{'='*60}\n")
+
 
 class SkillfulTerminal:
     """Interactive terminal interface for Skillful agent."""
 
     def __init__(self):
-        self.agent = AutonomousAgent()
+        self.config = Config()
+        self.agent = AutonomousAgent(config=self.config)
+        self.async_executor = AsyncExecutor() if self.config.get("async.enabled", False) else None
         self.running = True
 
     def print_banner(self):
@@ -274,6 +393,13 @@ class SkillfulTerminal:
         print("/clear         - Clear the screen")
         print("/history       - Show conversation history")
         print("/reset         - Reset the agent (clear history)")
+        print("/save [name]   - Save current session")
+        print("/load [id]     - Load a saved session")
+        print("/sessions      - List all saved sessions")
+        print("/undo          - Undo last operation (git)")
+        print("/status        - Show git status")
+        print("/config        - Show configuration")
+        print("/cost          - Show detailed cost report")
         print("/exit          - Exit the terminal")
         print("="*60 + "\n")
 
@@ -323,11 +449,115 @@ class SkillfulTerminal:
 
     def handle_reset(self, args):
         """Reset the agent."""
-        self.agent = AutonomousAgent()
+        self.agent = AutonomousAgent(config=self.config)
         print("\nAgent reset. Conversation history cleared.\n")
+
+    def handle_save(self, args):
+        """Save current session."""
+        if not self.agent.memory:
+            print("\nMemory is disabled in configuration.\n")
+            return
+
+        session_name = " ".join(args) if args else None
+        session_id = self.agent.memory.save_conversation(
+            self.agent.conversation_history,
+            session_name
+        )
+
+        if session_id:
+            print(f"\nSession saved: {session_id}\n")
+        else:
+            print("\nNo conversation to save.\n")
+
+    def handle_load(self, args):
+        """Load a saved session."""
+        if not self.agent.memory:
+            print("\nMemory is disabled in configuration.\n")
+            return
+
+        session_id = " ".join(args) if args else None
+        conversation = self.agent.memory.load_conversation(session_id)
+
+        if conversation:
+            self.agent.conversation_history = conversation
+            print(f"\nLoaded session with {len(conversation)} messages.\n")
+        else:
+            print("\nNo session found.\n")
+
+    def handle_sessions(self, args):
+        """List all saved sessions."""
+        if not self.agent.memory:
+            print("\nMemory is disabled in configuration.\n")
+            return
+
+        sessions = self.agent.memory.list_sessions()
+
+        if not sessions:
+            print("\nNo saved sessions.\n")
+            return
+
+        print("\n" + "="*60)
+        print("SAVED SESSIONS")
+        print("="*60)
+        for session in sessions:
+            print(f"\nID: {session['id']}")
+            print(f"Name: {session['name']}")
+            print(f"Messages: {session['message_count']}")
+            print(f"Time: {session['timestamp']}")
+        print("="*60 + "\n")
+
+    def handle_undo(self, args):
+        """Undo last operation."""
+        if not self.agent.undo_manager:
+            print("\nUndo is disabled in configuration.\n")
+            return
+
+        if not self.agent.undo_manager.can_undo():
+            print("\nNothing to undo.\n")
+            return
+
+        success, message = self.agent.undo_manager.undo_last()
+        print(f"\n{message}\n")
+
+    def handle_status(self, args):
+        """Show git status."""
+        if not self.agent.undo_manager:
+            print("\nUndo/git is disabled in configuration.\n")
+            return
+
+        status = self.agent.undo_manager.get_git_status()
+        print(f"\nGit Status:\n{status}\n")
+
+    def handle_config(self, args):
+        """Show configuration."""
+        config = self.config.get_all()
+        print("\n" + "="*60)
+        print("CONFIGURATION")
+        print("="*60)
+        print(json.dumps(config, indent=2))
+        print("="*60 + "\n")
+
+    def handle_cost(self, args):
+        """Show detailed cost report."""
+        # Check if user wants detailed view
+        show_details = "detail" in args or "details" in args or "-d" in args
+
+        report = self.agent.cost_tracker.format_cost_report(include_details=show_details)
+        print(f"\n{report}\n")
 
     def handle_exit(self, args):
         """Exit the terminal."""
+        # Auto-save conversation before exit
+        if self.agent.memory and self.config.get("memory.auto_save", True):
+            if self.agent.conversation_history:
+                self.agent.memory.save_conversation(
+                    self.agent.conversation_history,
+                    "auto-save"
+                )
+
+        # Save cost data
+        self.agent.cost_tracker.save_session_costs()
+
         print("\nGoodbye!\n")
         self.running = False
 
@@ -367,6 +597,20 @@ class SkillfulTerminal:
                     self.handle_history(args)
                 elif command == "/reset":
                     self.handle_reset(args)
+                elif command == "/save":
+                    self.handle_save(args)
+                elif command == "/load":
+                    self.handle_load(args)
+                elif command == "/sessions":
+                    self.handle_sessions(args)
+                elif command == "/undo":
+                    self.handle_undo(args)
+                elif command == "/status":
+                    self.handle_status(args)
+                elif command == "/config":
+                    self.handle_config(args)
+                elif command == "/cost":
+                    self.handle_cost(args)
                 elif command == "/exit" or command == "/quit":
                     self.handle_exit(args)
                 else:

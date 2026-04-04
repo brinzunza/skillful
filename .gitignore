@@ -1,6 +1,9 @@
 # Environment
 .env
 
+# Skillful data
+.skillful/
+
 # Python
 __pycache__/
 *.py[cod]
