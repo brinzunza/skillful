@@ -1,15 +1,15 @@
 # Skillful
 
-A barebones autonomous AI agent that executes tasks on your machine using OpenAI's API.
+A barebones autonomous AI agent that executes tasks on your machine.
 
 ## Features
 
-- **🤖 Autonomous Execution** - Agent loops until task completion
-- **💬 Interactive Terminal** - Command-line interface with real-time streaming
-- **💾 Persistent Memory** - Save and resume conversation sessions
-- **💰 Cost Tracking** - Real-time OpenAI API cost monitoring
-- **🔒 Safety First** - Sandboxed to current directory with multiple safety layers
-- **⚙️ Configurable** - YAML configuration for all settings
+- **Autonomous Execution** - Agent loops until task completion
+- **Interactive Terminal** - Command-line interface with real-time streaming
+- **Persistent Memory** - Save and resume conversation sessions
+- **Cost Tracking** - Real-time OpenAI API cost monitoring
+- **Safety First** - Sandboxed to current directory with multiple safety layers
+- **Configurable** - YAML configuration for all settings
 
 ## Quick Start
 
@@ -354,9 +354,3 @@ These files are already in `.gitignore` and won't be committed by default.
 ## License
 
 MIT
-
-## Credits
-
-Built with:
-- OpenAI API for LLM capabilities
-- Python for everything else
