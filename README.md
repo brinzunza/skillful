@@ -121,6 +121,7 @@ The agent can:
 
 - `read_file` - Read file contents
 - `write_file` - Write to a file
+- `edit_file` - Edit specific parts of a file (find and replace)
 - `delete_file` - Delete files (requires confirmation)
 - `list_directory` - List files in a directory
 - `create_directory` - Create directories

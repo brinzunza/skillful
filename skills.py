@@ -131,10 +131,54 @@ def get_current_directory() -> str:
     return os.getcwd()
 
 
+def edit_file(filepath: str, old_text: str, new_text: str) -> str:
+    """
+    Edit a file by replacing specific text. Use this instead of rewriting entire files.
+    This is more efficient and safer for making small changes.
+
+    Args:
+        filepath: Path to the file to edit
+        old_text: The exact text to find and replace (must match exactly including whitespace)
+        new_text: The text to replace it with
+
+    Returns:
+        Success or error message
+
+    Example:
+        To change "hello" to "goodbye" in file.txt:
+        edit_file("file.txt", "hello", "goodbye")
+    """
+    try:
+        # Read the file
+        with open(filepath, 'r') as f:
+            content = f.read()
+
+        # Check if old_text exists
+        if old_text not in content:
+            return f"Error: Could not find the specified text in {filepath}. Make sure the text matches exactly including whitespace."
+
+        # Count occurrences
+        count = content.count(old_text)
+        if count > 1:
+            return f"Error: Found {count} occurrences of the text in {filepath}. Please provide more context to make the match unique."
+
+        # Replace the text
+        new_content = content.replace(old_text, new_text, 1)
+
+        # Write back to file
+        with open(filepath, 'w') as f:
+            f.write(new_content)
+
+        return f"Successfully edited {filepath}: replaced text (1 occurrence)"
+    except Exception as e:
+        return f"Error editing file: {str(e)}"
+
+
 # Registry of all available skills
 SKILLS = {
     "read_file": read_file,
     "write_file": write_file,
+    "edit_file": edit_file,
     "list_directory": list_directory,
     "run_shell_command": run_shell_command,
     "create_directory": create_directory,
