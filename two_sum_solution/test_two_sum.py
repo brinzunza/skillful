@@ -1,5 +1,10 @@
 # Tests for Two Sum Solution
 import unittest
+import sys
+import os
+
+# Add the directory containing 'two_sum.py' to the Python path
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 from two_sum import two_sum
 
 class TestTwoSum(unittest.TestCase):
