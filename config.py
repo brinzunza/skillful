@@ -24,11 +24,6 @@ DEFAULT_CONFIG = {
     "async": {
         "enabled": False,
         "max_concurrent_tasks": 1
-    },
-    "undo": {
-        "enabled": True,
-        "use_git": True,
-        "auto_commit": True
     }
 }
 

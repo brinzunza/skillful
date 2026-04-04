@@ -7,7 +7,6 @@ A barebones autonomous AI agent that executes tasks on your machine using OpenAI
 - **🤖 Autonomous Execution** - Agent loops until task completion
 - **💬 Interactive Terminal** - Command-line interface with real-time streaming
 - **💾 Persistent Memory** - Save and resume conversation sessions
-- **⏮️ Undo/Rollback** - Git-based time machine for mistakes
 - **💰 Cost Tracking** - Real-time OpenAI API cost monitoring
 - **🔒 Safety First** - Sandboxed to current directory with multiple safety layers
 - **⚙️ Configurable** - YAML configuration for all settings
@@ -87,8 +86,6 @@ GOAL ACHIEVED!
 | `/save [name]` | Save current session |
 | `/load [id]` | Load a saved session |
 | `/sessions` | List all saved sessions |
-| `/undo` | Undo last operation |
-| `/status` | Show git status |
 | `/cost` | Show cost report |
 | `/config` | Show configuration |
 | `/history` | Show conversation history |
@@ -146,24 +143,7 @@ skillful> /load my-project
 
 Sessions stored in `.skillful/sessions.json` with full conversation history.
 
-### 2. Undo/Rollback
-
-Git-based time machine automatically creates checkpoints:
-
-```bash
-# Agent made a mistake?
-skillful> /undo
-
-# Check what would be undone
-skillful> /status
-```
-
-Automatic checkpoints before:
-- Writing files
-- Deleting files
-- Running shell commands
-
-### 3. Cost Tracking
+### 2. Cost Tracking
 
 Always know what you're spending:
 
@@ -186,7 +166,7 @@ skillful> /cost details
 
 Lifetime costs tracked in `.skillful/costs.json`.
 
-### 4. Configuration
+### 3. Configuration
 
 Edit `.skillful/config.yaml`:
 
@@ -202,11 +182,6 @@ safety:
 memory:
   enabled: true              # Persistent sessions
   auto_save: true            # Save on exit
-
-undo:
-  enabled: true              # Git-based undo
-  use_git: true
-  auto_commit: true          # Auto-checkpoint
 ```
 
 ## Safety Features
@@ -320,16 +295,14 @@ skillful/
 ├── safety.py             # Safety checks
 ├── memory.py             # Session management
 ├── config.py             # Configuration system
-├── undo.py               # Git-based undo
 ├── cost_tracker.py       # Cost tracking
 ├── async_executor.py     # Background tasks (experimental)
 ├── requirements.txt      # Dependencies
 ├── .env                  # Your API key (create this)
-├── .skillful/            # Auto-created data directory
-│   ├── config.yaml       # Configuration
-│   ├── sessions.json     # Saved conversations
-│   └── costs.json        # Cost tracking data
-└── .git/                 # Auto-initialized for undo
+└── .skillful/            # Auto-created data directory
+    ├── config.yaml       # Configuration
+    ├── sessions.json     # Saved conversations
+    └── costs.json        # Cost tracking data
 ```
 
 ## Troubleshooting
@@ -338,16 +311,6 @@ skillful/
 Create `.env` file with your API key:
 ```bash
 OPENAI_API_KEY=sk-your-key-here
-```
-
-### Git errors
-Git is required for undo functionality. Install:
-```bash
-# Mac
-brew install git
-
-# Ubuntu/Debian
-apt-get install git
 ```
 
 ### Permission errors
@@ -366,7 +329,6 @@ Check your model setting in `.skillful/config.yaml` and use `gpt-4o-mini` for ch
 - openai >= 1.0.0
 - python-dotenv >= 1.0.0
 - pyyaml >= 6.0.0
-- git (for undo feature)
 
 ## Security Notes
 
@@ -396,5 +358,4 @@ MIT
 
 Built with:
 - OpenAI API for LLM capabilities
-- Git for undo/rollback functionality
 - Python for everything else

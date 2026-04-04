@@ -12,7 +12,6 @@ from skills import get_skills_description, execute_skill
 from safety import SafetyMonitor, needs_user_confirmation
 from config import Config
 from memory import Memory
-from undo import UndoManager
 from async_executor import AsyncExecutor
 from cost_tracker import CostTracker
 
@@ -51,12 +50,6 @@ class AutonomousAgent:
 
         # Memory
         self.memory = Memory() if self.config.get("memory.enabled", True) else None
-
-        # Undo
-        self.undo_manager = UndoManager(
-            use_git=self.config.get("undo.use_git", True),
-            auto_commit=self.config.get("undo.auto_commit", True)
-        ) if self.config.get("undo.enabled", True) else None
 
         # Cost tracking
         self.cost_tracker = CostTracker()
@@ -233,11 +226,6 @@ If the goal is achieved, set "action" to "complete" and omit "skill" and "args".
                 print(f"\nUSER DENIED: Operation cancelled by user")
                 return "DENIED: User cancelled the operation"
 
-        # Create checkpoint before risky operations
-        if self.undo_manager and skill in ['write_file', 'delete_file', 'run_shell_command']:
-            checkpoint_desc = f"{skill} {args}"
-            self.undo_manager.checkpoint(checkpoint_desc)
-
         result = execute_skill(skill, **args)
         return result
 
@@ -396,8 +384,6 @@ class SkillfulTerminal:
         print("/save [name]   - Save current session")
         print("/load [id]     - Load a saved session")
         print("/sessions      - List all saved sessions")
-        print("/undo          - Undo last operation (git)")
-        print("/status        - Show git status")
         print("/config        - Show configuration")
         print("/cost          - Show detailed cost report")
         print("/exit          - Exit the terminal")
@@ -506,28 +492,6 @@ class SkillfulTerminal:
             print(f"Time: {session['timestamp']}")
         print("="*60 + "\n")
 
-    def handle_undo(self, args):
-        """Undo last operation."""
-        if not self.agent.undo_manager:
-            print("\nUndo is disabled in configuration.\n")
-            return
-
-        if not self.agent.undo_manager.can_undo():
-            print("\nNothing to undo.\n")
-            return
-
-        success, message = self.agent.undo_manager.undo_last()
-        print(f"\n{message}\n")
-
-    def handle_status(self, args):
-        """Show git status."""
-        if not self.agent.undo_manager:
-            print("\nUndo/git is disabled in configuration.\n")
-            return
-
-        status = self.agent.undo_manager.get_git_status()
-        print(f"\nGit Status:\n{status}\n")
-
     def handle_config(self, args):
         """Show configuration."""
         config = self.config.get_all()
@@ -603,10 +567,6 @@ class SkillfulTerminal:
                     self.handle_load(args)
                 elif command == "/sessions":
                     self.handle_sessions(args)
-                elif command == "/undo":
-                    self.handle_undo(args)
-                elif command == "/status":
-                    self.handle_status(args)
                 elif command == "/config":
                     self.handle_config(args)
                 elif command == "/cost":
