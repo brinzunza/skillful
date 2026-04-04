@@ -1,8 +1,11 @@
-# Environment
+# Environment variables (contains API keys - DO NOT COMMIT)
 .env
 
-# Skillful data
+# Skillful user data (contains sensitive information - DO NOT COMMIT)
 .skillful/
+.skillful/sessions.json     # Conversation history
+.skillful/costs.json         # Usage/cost data
+.skillful/config.yaml        # User configuration
 
 # Python
 __pycache__/
