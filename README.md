@@ -82,6 +82,10 @@ GOAL ACHIEVED!
 | Command | Description |
 |---------|-------------|
 | `/order <task>` | Give agent a task to complete |
+| `/submit <task>` | Submit a task to run in background |
+| `/tasks` | List all background tasks |
+| `/task <id>` | Check status of a specific background task |
+| `/cancel <id>` | Cancel a running background task |
 | `/skills` | List all available skills |
 | `/save [name]` | Save current session |
 | `/load [id]` | Load a saved session |
@@ -144,7 +148,72 @@ skillful> /load my-project
 
 Sessions stored in `.skillful/sessions.json` with full conversation history.
 
-### 2. Cost Tracking
+### 2. Concurrent Execution
+
+Run multiple agents simultaneously in the background:
+
+```bash
+# Submit tasks to run in background
+skillful> /submit create a Python script that sorts a list
+✓ Task submitted successfully
+Task ID: task_1_1733456789
+Goal: create a Python script that sorts a list
+
+Use '/task task_1_1733456789' to check status
+Use '/tasks' to list all tasks
+
+skillful> /submit analyze the README.md file
+✓ Task submitted successfully
+Task ID: task_2_1733456790
+...
+
+# Check all running tasks
+skillful> /tasks
+
+============================================================
+BACKGROUND TASKS
+============================================================
+Total: 2 | Running: 2 | Completed: 0 | Failed: 0
+============================================================
+
+🔄 task_1_1733456789
+  Status: RUNNING
+  Goal: create a Python script that sorts a list
+  Duration: 5.2s
+  Started: 2024-12-06T10:33:09
+
+✓ task_2_1733456790
+  Status: COMPLETED
+  Goal: analyze the README.md file
+  Duration: 3.1s
+  Started: 2024-12-06T10:33:10
+============================================================
+
+# Check specific task details
+skillful> /task task_1_1733456789
+
+# Cancel a running task
+skillful> /cancel task_1_1733456789
+✓ Task cancelled: task_1_1733456789
+```
+
+**Configuration:**
+
+Edit `.skillful/config.yaml` to control concurrency:
+
+```yaml
+async:
+  enabled: true              # Enable background execution
+  max_concurrent_tasks: 3    # Max simultaneous agents
+```
+
+**Benefits:**
+- Run multiple independent tasks in parallel
+- Continue working while agents execute in background
+- Track progress of all tasks in real-time
+- Useful for long-running or multiple unrelated tasks
+
+### 3. Cost Tracking
 
 Always know what you're spending:
 
@@ -183,6 +252,10 @@ safety:
 memory:
   enabled: true              # Persistent sessions
   auto_save: true            # Save on exit
+
+async:
+  enabled: true              # Enable background tasks
+  max_concurrent_tasks: 3    # Max simultaneous agents
 ```
 
 ## Safety Features
@@ -297,7 +370,7 @@ skillful/
 ├── memory.py             # Session management
 ├── config.py             # Configuration system
 ├── cost_tracker.py       # Cost tracking
-├── async_executor.py     # Background tasks (experimental)
+├── async_executor.py     # Background task execution
 ├── requirements.txt      # Dependencies
 ├── .env                  # Your API key (create this)
 └── .skillful/            # Auto-created data directory

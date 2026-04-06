@@ -6,6 +6,7 @@ A simple autonomous agent that can execute skills to achieve goals.
 import os
 import sys
 import json
+from datetime import datetime
 from dotenv import load_dotenv
 from openai import OpenAI
 from skills import get_skills_description, execute_skill
@@ -358,7 +359,8 @@ class SkillfulTerminal:
     def __init__(self):
         self.config = Config()
         self.agent = AutonomousAgent(config=self.config)
-        self.async_executor = AsyncExecutor() if self.config.get("async.enabled", False) else None
+        max_concurrent = self.config.get("async.max_concurrent_tasks", 3)
+        self.async_executor = AsyncExecutor(max_concurrent=max_concurrent)
         self.running = True
 
     def print_banner(self):
@@ -376,6 +378,10 @@ class SkillfulTerminal:
         print("AVAILABLE COMMANDS")
         print("="*60)
         print("/order <task>  - Give the agent a task to complete")
+        print("/submit <task> - Submit a task to run in background")
+        print("/tasks         - List all background tasks")
+        print("/task <id>     - Check status of a specific task")
+        print("/cancel <id>   - Cancel a running background task")
         print("/skills        - List all available skills")
         print("/help          - Show this help message")
         print("/clear         - Clear the screen")
@@ -411,6 +417,140 @@ class SkillfulTerminal:
         goal = " ".join(args)
         print(f"\nExecuting task: {goal}\n")
         self.agent.run(goal)
+
+    def handle_submit(self, args):
+        """Submit a task to run in background."""
+        if not args:
+            print("Error: Please provide a task")
+            print("Example: /submit create a file called hello.txt\n")
+            return
+
+        goal = " ".join(args)
+
+        # Create a new agent instance for this background task
+        def agent_runner(task_goal, output_queue):
+            """Run agent in background and capture output."""
+            try:
+                # Create a fresh agent instance for this task
+                task_agent = AutonomousAgent(config=self.config)
+                output_queue.put(f"[{datetime.now().strftime('%H:%M:%S')}] Starting task: {task_goal}")
+                task_agent.run(task_goal)
+                output_queue.put(f"[{datetime.now().strftime('%H:%M:%S')}] Task completed successfully")
+                return "SUCCESS"
+            except Exception as e:
+                output_queue.put(f"[{datetime.now().strftime('%H:%M:%S')}] Task failed: {str(e)}")
+                raise
+
+        task_id = self.async_executor.submit_task(goal, agent_runner)
+        print(f"\n✓ Task submitted successfully")
+        print(f"Task ID: {task_id}")
+        print(f"Goal: {goal}")
+        print(f"\nUse '/task {task_id}' to check status")
+        print(f"Use '/tasks' to list all tasks\n")
+
+    def handle_tasks(self, args):
+        """List all background tasks."""
+        tasks = self.async_executor.list_tasks()
+
+        if not tasks:
+            print("\nNo background tasks.\n")
+            return
+
+        stats = self.async_executor.get_stats()
+
+        print("\n" + "="*60)
+        print("BACKGROUND TASKS")
+        print("="*60)
+        print(f"Total: {stats['total_tasks']} | Running: {stats['running']} | "
+              f"Completed: {stats['completed']} | Failed: {stats['failed']}")
+        print("="*60)
+
+        for task in tasks:
+            status_icon = {
+                "pending": "⏳",
+                "running": "🔄",
+                "completed": "✓",
+                "failed": "✗",
+                "cancelled": "⊘"
+            }.get(task['status'], "?")
+
+            duration = task.get('duration')
+            duration_str = f"{duration:.1f}s" if duration else "N/A"
+
+            print(f"\n{status_icon} {task['id']}")
+            print(f"  Status: {task['status'].upper()}")
+            print(f"  Goal: {task['goal']}")
+            print(f"  Duration: {duration_str}")
+            if task.get('start_time'):
+                print(f"  Started: {task['start_time']}")
+
+        print("="*60 + "\n")
+
+    def handle_task(self, args):
+        """Check status of a specific task."""
+        if not args:
+            print("Error: Please provide a task ID")
+            print("Example: /task task_1_1234567890\n")
+            return
+
+        task_id = " ".join(args)
+        task = self.async_executor.get_task(task_id)
+
+        if not task:
+            print(f"\nTask not found: {task_id}\n")
+            return
+
+        status_icon = {
+            "pending": "⏳",
+            "running": "🔄",
+            "completed": "✓",
+            "failed": "✗",
+            "cancelled": "⊘"
+        }.get(task.status.value, "?")
+
+        print("\n" + "="*60)
+        print(f"TASK DETAILS: {task_id}")
+        print("="*60)
+        print(f"Status: {status_icon} {task.status.value.upper()}")
+        print(f"Goal: {task.goal}")
+
+        duration = task.get_duration()
+        if duration:
+            print(f"Duration: {duration:.1f}s")
+
+        if task.start_time:
+            print(f"Started: {task.start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+
+        if task.end_time:
+            print(f"Ended: {task.end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+
+        if task.error:
+            print(f"\nError: {task.error}")
+
+        # Get and display output
+        output = task.get_output()
+        if output:
+            print("\nOutput:")
+            print("-" * 60)
+            for line in output:
+                print(line)
+
+        print("="*60 + "\n")
+
+    def handle_cancel(self, args):
+        """Cancel a running background task."""
+        if not args:
+            print("Error: Please provide a task ID")
+            print("Example: /cancel task_1_1234567890\n")
+            return
+
+        task_id = " ".join(args)
+
+        if self.async_executor.cancel_task(task_id):
+            print(f"\n✓ Task cancelled: {task_id}\n")
+        else:
+            print(f"\n✗ Could not cancel task: {task_id}")
+            print("Task may not exist or is already finished.\n")
 
     def handle_clear(self, args):
         """Clear the screen."""
@@ -555,6 +695,14 @@ class SkillfulTerminal:
                     self.handle_skills(args)
                 elif command == "/order":
                     self.handle_order(args)
+                elif command == "/submit":
+                    self.handle_submit(args)
+                elif command == "/tasks":
+                    self.handle_tasks(args)
+                elif command == "/task":
+                    self.handle_task(args)
+                elif command == "/cancel":
+                    self.handle_cancel(args)
                 elif command == "/clear":
                     self.handle_clear(args)
                 elif command == "/history":

@@ -22,8 +22,8 @@ DEFAULT_CONFIG = {
         "auto_save": True
     },
     "async": {
-        "enabled": False,
-        "max_concurrent_tasks": 1
+        "enabled": True,
+        "max_concurrent_tasks": 3
     }
 }
 
