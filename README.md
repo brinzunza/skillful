@@ -209,9 +209,12 @@ async:
 
 **Benefits:**
 - Run multiple independent tasks in parallel
+- **Tasks run silently** - no output shown, terminal returns to prompt immediately
 - Continue working while agents execute in background
 - Track progress of all tasks in real-time
 - Useful for long-running or multiple unrelated tasks
+
+**Note:** Background tasks run in silent mode and cannot request user confirmation for operations like file deletion. Use `/order` for tasks requiring user interaction.
 
 ### 3. Cost Tracking
 

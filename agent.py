@@ -21,13 +21,14 @@ load_dotenv()
 
 
 class AutonomousAgent:
-    def __init__(self, api_key: str = None, config: Config = None):
+    def __init__(self, api_key: str = None, config: Config = None, silent: bool = False):
         """
         Initialize the autonomous agent.
 
         Args:
             api_key: OpenAI API key (defaults to OPENAI_API_KEY env var)
             config: Configuration object (creates default if None)
+            silent: If True, suppress all output (for background tasks)
         """
         # Load or create config
         self.config = config or Config()
@@ -43,6 +44,9 @@ class AutonomousAgent:
         self.model = self.config.get("model", "gpt-4o-mini")
         self.max_iterations = self.config.get("max_iterations", 20)
         self.temperature = self.config.get("temperature", 0.7)
+
+        # Silent mode for background tasks
+        self.silent = silent
 
         # Initialize components
         self.conversation_history = []
@@ -106,9 +110,10 @@ If the goal is achieved, set "action" to "complete" and omit "skill" and "args".
         messages.append({"role": "user", "content": user_message})
 
         # Stream the response
-        print("\n" + "="*60, flush=True)
-        print("AGENT REASONING (streaming...)", flush=True)
-        print("="*60, flush=True)
+        if not self.silent:
+            print("\n" + "="*60, flush=True)
+            print("AGENT REASONING (streaming...)", flush=True)
+            print("="*60, flush=True)
 
         stream = self.client.chat.completions.create(
             model=self.model,
@@ -128,30 +133,33 @@ If the goal is achieved, set "action" to "complete" and omit "skill" and "args".
             if chunk.choices[0].delta.content:
                 chunk_content = chunk.choices[0].delta.content
                 content += chunk_content
-                buffer += chunk_content
 
-                # Detect JSON code blocks
-                if "```json" in buffer:
-                    in_json_block = True
-                    # Print what came before
-                    before_json = buffer.split("```json")[0]
-                    print(before_json, end='', flush=True)
-                    print("\n[JSON Response]", flush=True)
-                    buffer = ""
-                elif "```" in buffer and in_json_block:
-                    in_json_block = False
-                    buffer = ""
-                else:
-                    # Stream character by character for smooth display
-                    print(chunk_content, end='', flush=True)
-                    buffer = ""
+                if not self.silent:
+                    buffer += chunk_content
+
+                    # Detect JSON code blocks
+                    if "```json" in buffer:
+                        in_json_block = True
+                        # Print what came before
+                        before_json = buffer.split("```json")[0]
+                        print(before_json, end='', flush=True)
+                        print("\n[JSON Response]", flush=True)
+                        buffer = ""
+                    elif "```" in buffer and in_json_block:
+                        in_json_block = False
+                        buffer = ""
+                    else:
+                        # Stream character by character for smooth display
+                        print(chunk_content, end='', flush=True)
+                        buffer = ""
 
             # Track usage if available
             if hasattr(chunk, 'usage') and chunk.usage:
                 input_tokens = chunk.usage.prompt_tokens
                 output_tokens = chunk.usage.completion_tokens
 
-        print("\n" + "="*60 + "\n", flush=True)  # Close streaming section
+        if not self.silent:
+            print("\n" + "="*60 + "\n", flush=True)  # Close streaming section
 
         # Track API cost (estimate if usage not provided in stream)
         if input_tokens > 0 or output_tokens > 0:
@@ -218,11 +226,15 @@ If the goal is achieved, set "action" to "complete" and omit "skill" and "args".
         if self.enable_safety:
             is_allowed, reason = self.safety_monitor.check_operation(skill, args)
             if not is_allowed:
-                print(f"\nSAFETY BLOCK: {reason}")
+                if not self.silent:
+                    print(f"\nSAFETY BLOCK: {reason}")
                 return f"BLOCKED: {reason}"
 
         # Check if user confirmation is required
+        # In silent mode, auto-deny operations requiring confirmation
         if needs_user_confirmation(skill, args):
+            if self.silent:
+                return "DENIED: Background tasks cannot request user confirmation"
             if not self._get_user_confirmation(skill, args):
                 print(f"\nUSER DENIED: Operation cancelled by user")
                 return "DENIED: User cancelled the operation"
@@ -265,55 +277,62 @@ If the goal is achieved, set "action" to "complete" and omit "skill" and "args".
         Args:
             goal: The goal to achieve
         """
-        print(f"\n{'='*60}")
-        print(f"GOAL: {goal}")
-        print(f"{'='*60}\n")
+        if not self.silent:
+            print(f"\n{'='*60}")
+            print(f"GOAL: {goal}")
+            print(f"{'='*60}\n")
 
         observation = None
 
         for iteration in range(self.max_iterations):
-            print(f"\n{'='*60}")
-            print(f"ITERATION {iteration + 1}/{self.max_iterations}")
-            print(f"{'='*60}")
+            if not self.silent:
+                print(f"\n{'='*60}")
+                print(f"ITERATION {iteration + 1}/{self.max_iterations}")
+                print(f"{'='*60}")
 
             # Think about what to do (streams reasoning in real-time)
             decision = self.think(goal, observation)
 
             # Check if goal is complete
             if decision["action"] == "complete":
-                print(f"\n{'='*60}")
-                print("GOAL ACHIEVED!")
-                print(f"{'='*60}\n")
+                if not self.silent:
+                    print(f"\n{'='*60}")
+                    print("GOAL ACHIEVED!")
+                    print(f"{'='*60}\n")
                 break
 
             # Execute the action
             skill = decision.get("skill", "N/A")
             args = decision.get("args", {})
 
-            print(f"\n[Executing: {skill}]")
-            if args:
-                print(f"Arguments: {json.dumps(args, indent=2)}")
+            if not self.silent:
+                print(f"\n[Executing: {skill}]")
+                if args:
+                    print(f"Arguments: {json.dumps(args, indent=2)}")
 
             observation = self.act(decision)
 
-            print(f"\n[Result]")
-            # Truncate long outputs but show more context
-            if len(observation) > 500:
-                print(f"{observation[:500]}...\n(truncated, {len(observation)} total chars)")
-            else:
-                print(observation)
+            if not self.silent:
+                print(f"\n[Result]")
+                # Truncate long outputs but show more context
+                if len(observation) > 500:
+                    print(f"{observation[:500]}...\n(truncated, {len(observation)} total chars)")
+                else:
+                    print(observation)
 
         else:
-            print(f"\n{'='*60}")
-            print("Max iterations reached. Goal may not be complete.")
-            print(f"{'='*60}\n")
+            if not self.silent:
+                print(f"\n{'='*60}")
+                print("Max iterations reached. Goal may not be complete.")
+                print(f"{'='*60}\n")
 
-        # Print safety report if enabled
-        if self.enable_safety:
+        # Print safety report if enabled (not in silent mode)
+        if self.enable_safety and not self.silent:
             self._print_safety_report()
 
-        # Print cost report
-        self._print_cost_summary()
+        # Print cost report (not in silent mode)
+        if not self.silent:
+            self._print_cost_summary()
 
     def _print_safety_report(self):
         """Print a safety report after agent execution."""
@@ -431,8 +450,8 @@ class SkillfulTerminal:
         def agent_runner(task_goal, output_queue):
             """Run agent in background and capture output."""
             try:
-                # Create a fresh agent instance for this task
-                task_agent = AutonomousAgent(config=self.config)
+                # Create a fresh agent instance for this task in SILENT mode
+                task_agent = AutonomousAgent(config=self.config, silent=True)
                 output_queue.put(f"[{datetime.now().strftime('%H:%M:%S')}] Starting task: {task_goal}")
                 task_agent.run(task_goal)
                 output_queue.put(f"[{datetime.now().strftime('%H:%M:%S')}] Task completed successfully")
