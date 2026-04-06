@@ -82,6 +82,40 @@ Your job is to:
 3. Provide the arguments for that skill
 4. Decide if the goal is complete
 
+CRITICAL IMPLEMENTATION RULES:
+- ALWAYS write COMPLETE, WORKING implementations
+- NEVER use placeholders like "# TODO", "# implement this", "pass", or comments saying "add code here"
+- NEVER create stub functions or incomplete code
+- When creating files with code, write the FULL implementation immediately
+- If a task requires multiple steps, complete each step fully before moving to the next
+- Quality and completeness are MORE important than speed
+- If you write a function, it must be fully functional, not a skeleton
+
+EXAMPLES OF WHAT NOT TO DO:
+❌ def sort_list(items):
+    # TODO: implement sorting logic here
+    pass
+
+❌ def calculate_sum(numbers):
+    # Add implementation here
+    return 0
+
+EXAMPLES OF WHAT TO DO:
+✓ def sort_list(items):
+    return sorted(items)
+
+✓ def calculate_sum(numbers):
+    total = 0
+    for num in numbers:
+        total += num
+    return total
+
+When writing code:
+- Implement all logic completely
+- Include proper error handling
+- Write working, executable code
+- Test your logic mentally before writing
+
 Respond ONLY with valid JSON in this exact format:
 {{
     "reasoning": "Your thought process",
@@ -203,6 +237,69 @@ If the goal is achieved, set "action" to "complete" and omit "skill" and "args".
 
         return decision
 
+    def _check_incomplete_implementation(self, skill: str, args: dict, result: str) -> str:
+        """
+        Check if a file write/edit operation created incomplete code.
+
+        Args:
+            skill: The skill that was executed
+            args: Arguments passed to the skill
+            result: The result from the skill execution
+
+        Returns:
+            Modified result with warnings if incomplete code detected
+        """
+        # Only check write_file and edit_file operations
+        if skill not in ["write_file", "edit_file"]:
+            return result
+
+        # Get content to check (either full content or new_string for edits)
+        if skill == "write_file":
+            content = args.get("content", "")
+        elif skill == "edit_file":
+            content = args.get("new_string", "")
+        else:
+            return result
+
+        # Patterns that indicate incomplete implementations
+        incomplete_patterns = [
+            "# TODO",
+            "# FIXME",
+            "# implement",
+            "# add code here",
+            "# your code here",
+            "# write code here",
+            "pass  # TODO",
+            "pass  # implement",
+            "raise NotImplementedError",
+            "...",  # Python ellipsis often used as placeholder
+        ]
+
+        found_issues = []
+        for pattern in incomplete_patterns:
+            if pattern.lower() in content.lower():
+                found_issues.append(pattern)
+
+        # Check for stub functions (function with only 'pass' or 'return None')
+        if "def " in content:
+            lines = content.split('\n')
+            for i, line in enumerate(lines):
+                if line.strip().startswith("def "):
+                    # Check next few non-empty lines
+                    next_lines = [l.strip() for l in lines[i+1:i+5] if l.strip() and not l.strip().startswith('#')]
+                    if next_lines and next_lines[0] in ['pass', 'return None', 'return 0', 'return ""', "return ''", 'return []', 'return {}']:
+                        found_issues.append("Stub function detected")
+                        break
+
+        if found_issues:
+            warning = f"\n\n⚠️  WARNING: Incomplete implementation detected!\n"
+            warning += f"Issues found: {', '.join(set(found_issues))}\n"
+            warning += "You must write COMPLETE, WORKING code. Go back and implement it properly.\n"
+            warning += "Do NOT mark the goal as complete until the code is fully implemented."
+            return result + warning
+
+        return result
+
     def act(self, decision: dict) -> str:
         """
         Execute the action decided by the LLM.
@@ -240,6 +337,10 @@ If the goal is achieved, set "action" to "complete" and omit "skill" and "args".
                 return "DENIED: User cancelled the operation"
 
         result = execute_skill(skill, **args)
+
+        # Check for incomplete implementations and add warnings
+        result = self._check_incomplete_implementation(skill, args, result)
+
         return result
 
     def _get_user_confirmation(self, skill: str, args: dict) -> bool:
